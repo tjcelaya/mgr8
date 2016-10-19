@@ -7,7 +7,7 @@ import (
 	"flag"
 	_ "github.com/go-sql-driver/mysql"
 	"os"
-	"sync"
+	"github.com/youtube/vitess/go/sync2"
 )
 
 var (
@@ -40,72 +40,57 @@ func getDatabaseConnection(user, pass, dbName string, maxConn int) *sql.DB {
 func main() {
 	dbname := flag.String("db", "db", "Database name to work on.")
 	colname := flag.String("column", "id", "Column name usually 'id'.")
-
 	user := flag.String("user", "root", "username")
 	pass := flag.String("pass", "secret", "password")
 	maxConn := flag.Int("connections", 5, "Number of connections to use")
-
 	forAdd := flag.Bool("add", false, "whether to add auto_increment")
 	forRemoval := flag.Bool("remove", false, "whether to remove auto_increment")
-
 	flag.Parse()
+	//actiona :=
+	 getAction(forAdd, forRemoval)
 
-	var action string
-	if *forAdd == false && *forRemoval == false {
-		fmt.Println("What am I supposed to do with this?")
-		os.Exit(1)
-		return
-	} else if *forAdd {
-		action = "Removing auto_inc from "
-	} else if *forRemoval {
-		action = "Adding auto_inc to "
-	}
-
-	fmt.Println(action + (*colname) + " column in " + (*dbname))
+	//fmt.Println(action + (*colname) + " column in " + (*dbname))
 
 	db := getDatabaseConnection(*user, *pass, *dbname, *maxConn)
 	defer db.Close()
 
-	stmts := buildAlterStatements(db, *dbname, *colname, *forRemoval)
+	stmts := buildAlterStatements(db, *dbname, *colname, *forAdd)
 	if len(stmts) < (*maxConn) {
 		*maxConn = len(stmts)
 	}
 
-	wg := sync.WaitGroup{}
+	if len(stmts) == 0 {
+		fmt.Println("nothing to do")
+		os.Exit(1)
+	}
+
+	//wg := sync.WaitGroup{}
 	stmtCh := make(chan AlterStatement, *maxConn)
 	doneCh := make(chan AlterResult, *maxConn)
+	concurrentAlters := sync2.NewAtomicInt32(0)
 
-	fmt.Printf("kicking off %d workers\n", *maxConn)
+	fmt.Printf("kicking off %d workers for %d statements\n", *maxConn, len(stmts))
 	for i := 0; i < *maxConn - 1; i++ {
-		fmt.Println(i)
-		go queryWorker(db, stmtCh, doneCh)
+		go queryWorker(db, stmtCh, doneCh, concurrentAlters)
 	}
-
-	//stmtCh <- stmts[0]
-	//completionResult := <-doneCh
-	//fmt.Println(completionResult)
-	//os.Exit(1)
-
-	for _, stmt := range stmts {
-		fmt.Println("main kicking off " + fmt.Sprintf("%#v", stmt.colDef.tableName))
-		go func() {
-			stmtCh <- stmt
-		}()
-	}
-
-	fmt.Println("done with that")
 
 	for i := 0; i < len(stmts); i++ {
-		fmt.Println(" <  m2 -> " + stmts[i].colDef.tableName)
+		go func(clsI int) {
+			stmtCh <- stmts[clsI]
+		}(i)
+	}
+
+	for i := 0; i < len(stmts); i++ {
 		completionResult := <-doneCh
-		fmt.Println("<<< m2 " + fmt.Sprintf("%#v", i) + " -> " + stmts[i].colDef.tableName)
+		concurrentAlters.Add(1)
+		//fmt.Println("<<< m2 " + fmt.Sprintf("%#v", i) + " -> " + stmts[i].colDef.tableName)
 
 		if completionResult.err != nil {
 			fmt.Printf("error running query on table %s complete: %s \n",
 				completionResult.alter.colDef.tableName,
 				completionResult.alter.queryString)
-			fmt.Println(completionResult.err)
-			return
+			//fmt.Println(completionResult.err)
+			continue
 		}
 
 		fmt.Printf("table %s complete, %d rows\n",
@@ -113,9 +98,21 @@ func main() {
 			completionResult.rowsAffected)
 	}
 
-	fmt.Println("waiting on completion now?")
-
+	//fmt.Println("we should be done? " + fmt.Sprintf("%#v", stmtsCompleted.Get()))
 	os.Exit(0)
+}
+func getAction(add *bool, remove *bool) string {
+	var action string
+	if *add == false && *remove == false {
+		//fmt.Println("What am I supposed to do with this?")
+		os.Exit(1)
+	} else if *remove {
+		action = "Removing auto_inc from "
+	} else if *add {
+		action = "Adding auto_inc to "
+	}
+
+	return action
 }
 
 type PrimaryColumnDefinition struct {
@@ -136,13 +133,13 @@ type AlterResult struct {
 func buildAlterStatements(
 db *sql.DB,
 dbName, colName string,
-forAuto bool) []AlterStatement {
+forAddingAuto bool) []AlterStatement {
 
 	var autoIncClause string
-	if forAuto {
-		autoIncClause = " AND EXTRA = 'auto_increment' "
-	} else {
+	if forAddingAuto {
 		autoIncClause = " AND EXTRA = '' "
+	} else {
+		autoIncClause = " AND EXTRA = 'auto_increment' "
 	}
 
 	strstr := `
@@ -185,7 +182,7 @@ forAuto bool) []AlterStatement {
 		//	row.nullable = " NOT NULL "
 		//}
 
-		if forAuto {
+		if forAddingAuto {
 			fmtStr = fmtStr + " AUTO_INCREMENT "
 		}
 
@@ -202,29 +199,28 @@ forAuto bool) []AlterStatement {
 	return alters
 }
 
-func queryWorker(db *sql.DB, stmtCh chan AlterStatement, resCh chan AlterResult) {
+func queryWorker(db *sql.DB, stmtCh chan AlterStatement, resCh chan AlterResult, anInt sync2.AtomicInt32) {
 	for {
-		fmt.Println(" worker blocked ")
+		//fmt.Println(" worker blocked ")
 		stmt := <-stmtCh
-		fmt.Println(" WOOt IT's TIME FOR " + stmt.colDef.tableName)
-
+		//fmt.Println(" WOOt IT's TIME FOR " + stmt.colDef.tableName)
+		anInt.Add(1)
 		alter := applyAlter(db, stmt)
-
-		fmt.Println(" + worker done! trying to submit result ")
+		//fmt.Println(" + worker done! trying to submit result ")
 		resCh <- alter
-		fmt.Println(" - result submitted! " + stmt.colDef.tableName)
+		//fmt.Println(" - result submitted! " + stmt.colDef.tableName)
 	}
 }
 
 func applyAlter(db *sql.DB, alter AlterStatement) AlterResult {
 
-	fmt.Println("working on " + alter.colDef.tableName)
-
 	if !performExec {
 		return AlterResult{alter, -1, nil}
 	}
 
+	fmt.Println("working on " + alter.colDef.tableName)
 	res, err := db.Exec(alter.queryString)
+	fmt.Println("finished " + alter.colDef.tableName)
 
 	result := AlterResult{}
 
@@ -247,6 +243,6 @@ func applyAlter(db *sql.DB, alter AlterStatement) AlterResult {
 	}
 
 	result = AlterResult{alter, int(rowsAffected), nil}
-	fmt.Println(result)
+	//fmt.Println(result)
 	return result
 }

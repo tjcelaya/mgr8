@@ -1,15 +1,15 @@
 package mdb
 
 import (
-	"fmt"
 	"database/sql"
+	"fmt"
 )
 
 /*
 
 	ALTER STATEMENT
 
- */
+*/
 
 type AlterStatement struct {
 	colDef      PrimaryColumnDefinition
@@ -25,7 +25,6 @@ func (a *AlterStatement) SetQueryString(s string) {
 }
 
 func (a *AlterStatement) Apply(forReal bool, db *sql.DB) (result AlterResult) {
-
 	if !forReal {
 		return AlterResult{alter: *a, rowsAffected: -1, err: nil}
 	}
@@ -59,7 +58,7 @@ func (a *AlterStatement) Apply(forReal bool, db *sql.DB) (result AlterResult) {
 
 	ALTER RESULT
 
- */
+*/
 
 type AlterResult struct {
 	alter        AlterStatement
@@ -87,7 +86,7 @@ func (a *AlterResult) PlanDescription() string {
 
 	ALTER EXECUTION PLAN
 
- */
+*/
 
 type AlterExecutionPlan struct {
 	dbConn           *sql.DB
@@ -147,7 +146,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		}
 
 		str := fmt.Sprintf(
-			fmtStr + "\n",
+			fmtStr+"\n",
 			c.tableName,
 			c.colName,
 			c.colName,

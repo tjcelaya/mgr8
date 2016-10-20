@@ -5,23 +5,19 @@ import "database/sql"
 import (
 	_ "database/sql/driver"
 	_ "github.com/go-sql-driver/mysql"
-	"os"
-	"migorate/mdb"
 	"io"
+	"migorate/mdb"
+	"os"
 )
 
 var (
 	forReal = true
 )
 
-func Run(ior io.Reader, iow io.Writer) (int) {
-
+func Run(ior io.Reader, iow io.Writer) int {
 	mf := parseFlags()
-
 	action := getAction(mf.forAdd, mf.forRemoval)
-
 	fmt.Printf("%s column %s from database %s", action, *mf.colName, *mf.dbName)
-
 	db, err := mdb.New(fmt.Sprintf("%s:%s@/%s", *mf.user, *mf.pass, *mf.dbName), *mf.maxDbConn)
 
 	if err != nil {
@@ -29,10 +25,8 @@ func Run(ior io.Reader, iow io.Writer) (int) {
 	}
 
 	defer db.Close()
-
 	aep := mdb.NewAlterExecutionPlan(db, *mf.dbName, *mf.colName, *mf.forAdd)
-
-	stmts, err :=  aep.Build(db)
+	stmts, err := aep.Build(db)
 
 	if err != nil {
 		return 2
@@ -57,31 +51,25 @@ func Run(ior io.Reader, iow io.Writer) (int) {
 	for i := 0; i < *mf.maxDbConn; i++ {
 		go queryWorker(db, stmtCh, doneCh, forReal)
 	}
-
 	for i := 0; i < len(stmts); i++ {
 		go func(clsI int) {
 			stmtCh <- stmts[clsI]
 		}(i)
 	}
-
 	for i := 0; i < len(stmts); i++ {
 		fmt.Printf("waiting for %#v\n", i)
 		completionResult := <-doneCh
-
 		if completionResult.Err() != nil {
 			fmt.Printf("error running query on table %s complete: %s \n",
 				completionResult.TargetIdentifier(),
 				completionResult.PlanDescription())
 		}
-
 		fmt.Printf("table %s complete, %d rows\n",
 			completionResult.TargetIdentifier(),
 			completionResult.ResultCount())
 	}
-
 	return 0
 }
-
 func getAction(add *bool, remove *bool) string {
 	var action string
 	if *add == false && *remove == false {
@@ -91,7 +79,6 @@ func getAction(add *bool, remove *bool) string {
 	} else if *add {
 		action = "Adding auto_inc to "
 	}
-
 	return action
 }
 

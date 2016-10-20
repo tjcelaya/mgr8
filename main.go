@@ -3,8 +3,8 @@ package main
 import (
 	_ "database/sql/driver"
 	_ "github.com/go-sql-driver/mysql"
-	"os"
 	"migorate/mcli"
+	"os"
 )
 
 func main() {

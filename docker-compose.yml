@@ -5,7 +5,7 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: "pass"
+      MYSQL_ROOT_PASSWORD: "secret"
       MYSQL_DATABASE: "mgr8_db"
 
 #  mgr8:

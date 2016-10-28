@@ -89,9 +89,9 @@ func (a *AlterResult) PlanDescription() string {
 */
 
 type AlterExecutionPlan struct {
-	dbConn           *sql.DB
-	dbName, colName  string
-	forAddingAutoInc bool
+	dbConn          *sql.DB
+	dbName, colName string
+	autoInc         bool
 }
 
 func NewAlterExecutionPlan(dbConn *sql.DB, dbName, colName string, forAddingAutoInc bool) AlterExecutionPlan {
@@ -100,10 +100,10 @@ func NewAlterExecutionPlan(dbConn *sql.DB, dbName, colName string, forAddingAuto
 
 func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	var autoIncClause string
-	if aep.forAddingAutoInc {
-		autoIncClause = " AND EXTRA = '' "
-	} else {
+	if aep.autoInc {
 		autoIncClause = " AND EXTRA = 'auto_increment' "
+	} else {
+		autoIncClause = " AND EXTRA = '' "
 	}
 
 	strstr := `
@@ -141,7 +141,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		//	row.nullable = " NOT NULL "
 		//}
 
-		if aep.forAddingAutoInc {
+		if aep.autoInc {
 			fmtStr = fmtStr + " AUTO_INCREMENT "
 		}
 

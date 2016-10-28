@@ -1,0 +1,16 @@
+version: '2'
+services:
+  mgr8_test_db:
+    image: percona
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "pass"
+      MYSQL_DATABASE: "mgr8_db"
+
+#  mgr8:
+#	build: .
+#	volumes:
+#	 - .:/opt/mgr8
+#	depends_on:
+#	 - mgr8_test_db

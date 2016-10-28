@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	_ "database/sql/driver"
+	_ "fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"migorate/mcli"
+	"github.com/tjcelaya/mgr8/mcli"
 	"os"
 )
 
 func main() {
-	os.Exit(mcli.Run(os.Stdout, os.Stdin))
+	var run int
+	bufioReader := bufio.NewReader(os.Stdin)
+	run = mcli.Run(bufioReader, os.Stdout)
+	os.Exit(run)
 }

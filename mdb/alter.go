@@ -6,6 +6,7 @@ import (
 	"log"
 	_ "os"
 	"github.com/tjcelaya/mgr8/mutil"
+	"strings"
 )
 
 /*
@@ -108,29 +109,37 @@ func NewAlterExecutionPlan(
 
 func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
-	var dbClause, tableClause, autoIncClause string
+	var whereClauses []string
 
-	dbClause = " TABLE_SCHEMA = '" + aep.dbName + "'"
+	whereClauses = append(whereClauses, " TABLE_SCHEMA = '" + aep.dbName + "'")
 
 	if aep.tableName != "" {
-		tableClause = " AND TABLE_NAME = " + aep.tableName
+		whereClauses = append(whereClauses, " AND TABLE_NAME = " + aep.tableName)
+	}
+
+	if aep.colName != "" {
+		whereClauses = append(whereClauses, " AND COLUMN_NAME LIKE '" + aep.colName + "'")
 	}
 
 	switch aep.autoInc {
 	case mutil.IntentAdd:
-		autoIncClause = " AND EXTRA = '' "
+		whereClauses = append(whereClauses, " AND EXTRA = '' ")
 	case mutil.IntentRemove:
-		autoIncClause = " AND EXTRA = 'auto_increment' "
+		whereClauses = append(whereClauses, " AND EXTRA = 'auto_increment' ")
 	}
 
 	switch aep.nullable {
 	case mutil.IntentAdd:
-		autoIncClause = " AND IS_NULLABLE = 'NO' "
+		whereClauses = append(whereClauses, " AND IS_NULLABLE = 'NO' ")
 	case mutil.IntentRemove:
-		autoIncClause = " AND IS_NULLABLE = 'YES' "
+		whereClauses = append(whereClauses, " AND IS_NULLABLE = 'YES' ")
 	}
 
-	colQuery := fmt.Sprintf(`
+	if aep.typeName != "" {
+		whereClauses = append(whereClauses, " AND COLUMN_TYPE NOT LIKE '" + aep.typeName + "%'")
+	}
+
+	colQuery := `
 		SELECT
 			TABLE_SCHEMA dbName,
 			TABLE_NAME tableName,
@@ -141,10 +150,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		FROM
 			information_schema.COLUMNS
 		WHERE
-			%s %s %s`,
-		dbClause,
-		autoIncClause,
-		tableClause)
+			` + strings.Join(whereClauses, " ")
 
 	log.Println("running " + colQuery)
 
@@ -170,14 +176,11 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
 	for _, c := range colDefs {
 		fmtStr := "ALTER TABLE %s CHANGE `%s` `%s` %s "
+		alterColType := c.colType
 
-		// id columns aren't usually null
-		//switch row.nullable {
-		//case "YES":
-		//	row.nullable = " NULL "
-		//case "NO":
-		//	row.nullable = " NOT NULL "
-		//}
+		if aep.typeName != "" {
+			alterColType = aep.typeName
+		}
 
 		if aep.autoInc == mutil.IntentAdd {
 			fmtStr = fmtStr + " AUTO_INCREMENT "
@@ -188,7 +191,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 			c.tableName,
 			c.colName,
 			c.colName,
-			c.colType)
+			alterColType)
 
 		alters = append(alters, NewAlterStatement(c, str))
 	}

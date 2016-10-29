@@ -10,6 +10,7 @@ type MFlags struct {
 	dbName,
 	tableName,
 	colName,
+	colsNamed,
 	typeName,
 	newTypeName,
 	user,
@@ -23,7 +24,7 @@ type MFlags struct {
 func parseFlags() MFlags {
 	f := MFlags{
 		dbName:            flag.String("db", "mgr8_db", "Database name to work on."),
-		colName:           flag.String("column", "", "Column name usually 'id` or something like that."),
+		colName:           flag.String("column", "", "Column name usually 'id' or something like that, can be comma-delimited OR include % wildcards, but not both."),
 		tableName:         flag.String("table", "", "Table name"),
 		typeName:          flag.String("coltype", "", "Column type"),
 		user:              flag.String("user", "root", "username"),

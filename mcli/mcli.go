@@ -44,7 +44,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		*mf.dbName,
 		*mf.tableName,
 		*mf.colName,
-		"",
+		*mf.newTypeName,
 		autoIncIntent,
 		mutil.IntentNone)
 
@@ -130,6 +130,10 @@ func configureCliAndMaybeExit(iow io.Writer, mf MFlags) (bool, int) {
 		log.Println("auto_inc: add")
 	} else if *mf.forAutoIncRemoval {
 		log.Println("auto_inc: remove")
+	}
+
+	if *mf.newTypeName != "" {
+		log.Printf("column type change: %s\n", *mf.newTypeName)
 	}
 
 	return false, 0

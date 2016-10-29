@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"github.com/tjcelaya/mgr8/mutil"
 )
 
 var (
@@ -19,40 +20,34 @@ var (
 
 func Run(ior *bufio.Reader, iow io.Writer) int {
 	mf := parseFlags()
+	shouldExitEarly, exitCode := configureCliAndMaybeExit(iow, mf)
 
-	log.SetOutput(iow)
-	log.SetPrefix("mgr8 - ")
-
-	if len(os.Args) == 1 {
-		log.Printf("\nmy name is %s and I have nothing to do? try -help !\n", os.Args[0])
-		return 0
+	if shouldExitEarly {
+		return exitCode
 	}
 
-	var passwordProvided string
-
-	if *mf.askForPass {
-		passwordProvided = prompt.Password("password pls")
-	} else {
-		passwordProvided = *mf.pass
-	}
-
-	log.Printf(
-		"%s column %s in database %s",
-		getAction(mf.forAutoIncAdd, mf.forAutoIncRemoval),
-		*mf.colName,
-		*mf.dbName)
-
-	db, err := mdb.New(fmt.Sprintf("%s:%s@/%s", *mf.user, passwordProvided, *mf.dbName), *mf.maxDbConn)
+	db, err := buildDbConnection(mf)
 
 	if err != nil {
-		log.Fatalf("couldnt connect to the database! %v\n", err)
 		return 1
 	}
 
-	log.Printf("connected!\n")
+	var autoIncIntent mutil.BinaryChangeIntent
+	switch {
+	case *mf.forAutoIncAdd:
+		autoIncIntent = mutil.IntentAdd
+	case *mf.forAutoIncRemoval:
+		autoIncIntent = mutil.IntentRemove
+	}
 
-	defer db.Close()
-	aep := mdb.NewAlterExecutionPlan(db, *mf.dbName, *mf.colName, *mf.forAutoIncAdd)
+	aep := mdb.NewAlterExecutionPlan(
+		*mf.dbName,
+		*mf.tableName,
+		*mf.colName,
+		"",
+		autoIncIntent,
+		mutil.IntentNone)
+
 	stmts, err := aep.Build(db)
 
 	if err != nil {
@@ -80,11 +75,13 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	for i := 0; i < *mf.maxDbConn; i++ {
 		go queryWorker(db, stmtCh, doneCh, forReal)
 	}
+
 	for i := 0; i < len(stmts); i++ {
 		go func(clsI int) {
 			stmtCh <- stmts[clsI]
 		}(i)
 	}
+
 	for i := 0; i < len(stmts); i++ {
 		log.Printf("waiting for %#v\n", i)
 		completionResult := <-doneCh
@@ -100,16 +97,63 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	return 0
 }
 
-func getAction(add *bool, remove *bool) string {
-	var action string
-	if *add == false && *remove == false {
-		os.Exit(1)
-	} else if *remove {
-		action = "Removing auto_inc from"
-	} else if *add {
-		action = "Adding auto_inc to"
+func configureCliAndMaybeExit(iow io.Writer, mf MFlags) (bool, int) {
+	log.SetOutput(iow)
+	log.SetPrefix("mgr8 - ")
+
+	if len(os.Args) == 1 {
+		log.Printf("\nmy name is %s and I have nothing to do? try -help !\n", os.Args[0])
+		return true, 0
 	}
-	return action
+
+	if *mf.dbName == "" {
+		log.Println("no db given!")
+		return true, 1
+	}
+
+	log.Printf("database: %s", *mf.dbName)
+
+	if *mf.tableName == "" && *mf.colName == "" {
+		log.Println("no table or column given, need at least one!")
+		return true, 1
+	} else if *mf.colName == "" {
+		log.Println("no table operations supported yet")
+		return true, -1
+	} else if *mf.tableName == "" {
+		log.Printf("column: %s", *mf.colName)
+	}
+
+	if *mf.forAutoIncAdd && *mf.forAutoIncRemoval {
+		log.Println("can't both add and remove auto-inc!")
+		return true, 2
+	} else if *mf.forAutoIncAdd {
+		log.Println("auto_inc: add")
+	} else if *mf.forAutoIncRemoval {
+		log.Println("auto_inc: remove")
+	}
+
+	return false, 0
+}
+
+func buildDbConnection(mf MFlags) (*sql.DB, error) {
+	var passwordProvided string
+
+	if *mf.askForPass {
+		passwordProvided = prompt.Password("password pls")
+	} else {
+		passwordProvided = *mf.pass
+	}
+
+	db, err := mdb.New(fmt.Sprintf("%s:%s@/%s", *mf.user, passwordProvided, *mf.dbName), *mf.maxDbConn)
+
+	if err != nil {
+		log.Fatalf("couldnt connect to the database! %v\n", err)
+		return nil, err
+	}
+
+	log.Println("connected!")
+
+	return db, nil
 }
 
 func queryWorker(db *sql.DB, stmtCh chan mdb.AlterStatement, resCh chan mdb.AlterResult, forReal bool) {

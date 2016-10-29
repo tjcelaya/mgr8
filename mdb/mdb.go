@@ -4,9 +4,9 @@ import (
 	"database/sql"
 )
 
-type PrimaryColumnDefinition struct {
-	tableName, colName, colType, nullable string
-	autoInc                               bool
+type ColumnDefinition struct {
+	dbName, tableName, colName, colType string
+	autoInc, nullable           bool
 }
 
 func New(dsn string, maxConn int) (db *sql.DB, err error) {

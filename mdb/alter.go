@@ -3,10 +3,11 @@ package mdb
 import (
 	"database/sql"
 	"fmt"
+	"github.com/tjcelaya/mgr8/mutil"
 	"log"
 	_ "os"
-	"github.com/tjcelaya/mgr8/mutil"
 	"strings"
+	"github.com/siddontang/go-mysql/Godeps/_workspace/src/github.com/juju/errors"
 )
 
 /*
@@ -92,9 +93,11 @@ func (a *AlterResult) PlanDescription() string {
 
 */
 
+type AlterError string
+
 type AlterExecutionPlan struct {
 	dbName, tableName, colName, typeName string
-	autoInc, nullable mutil.BinaryChangeIntent
+	autoInc, nullable                    mutil.BinaryChangeIntent
 }
 
 func NewAlterExecutionPlan(
@@ -109,15 +112,27 @@ func NewAlterExecutionPlan(
 
 func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
+	if aep.tableName == "" && aep.colName == "" {
+		return nil, errors.New("no table or column specified!")
+	}
+
 	var whereClauses []string
 
-	whereClauses = append(whereClauses, " TABLE_SCHEMA = '" + aep.dbName + "'")
+	whereClauses = append(whereClauses, " TABLE_SCHEMA = '" + aep.dbName+"'")
 
 	if aep.tableName != "" {
 		whereClauses = append(whereClauses, " AND TABLE_NAME = " + aep.tableName)
 	}
 
-	if aep.colName != "" {
+	if strings.ContainsRune(aep.colName, ',') {
+		colNames := make([]string, 0)
+
+		for _, c := range strings.Split(aep.colName, ",") {
+			colNames = append(colNames, strings.Trim(c, `'"`))
+		}
+
+		whereClauses = append(whereClauses, " AND COLUMN_NAME IN ('" + strings.Join(colNames, "','") + "')")
+	} else if aep.colName != "" {
 		whereClauses = append(whereClauses, " AND COLUMN_NAME LIKE '" + aep.colName + "'")
 	}
 
@@ -149,8 +164,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 			EXTRA extra
 		FROM
 			information_schema.COLUMNS
-		WHERE
-			` + strings.Join(whereClauses, " ")
+		WHERE ` + strings.Join(whereClauses, "\n\t\t")
 
 	log.Println("running " + colQuery)
 

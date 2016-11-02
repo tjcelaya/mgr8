@@ -52,6 +52,8 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		return 2
 	}
 
+	stmts = mdb.CombineSameTableAlters(stmts)
+
 	if len(stmts) == 0 {
 		log.Println("nothing to do?")
 		return 0
@@ -61,8 +63,6 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		*mf.maxDbConn = len(stmts)
 		db.SetMaxOpenConns(*mf.maxDbConn)
 	}
-
-	stmts = mdb.CombineSameTableAlters(stmts)
 
 	if (false == *mf.write) {
 		log.Println("exiting early since write mode is disabled")

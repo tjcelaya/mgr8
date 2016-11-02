@@ -3,7 +3,8 @@ package mdb
 import (
 	"database/sql"
 	"fmt"
-	_ "os"
+	_"os"
+	_"log"
 )
 
 /*
@@ -21,20 +22,17 @@ func NewAlterStatement(cd string, qs string) AlterStatement {
 }
 
 func (a *AlterStatement) Serialize() string {
-	return "ALTER " + a.tableName + " " + a.changeStr
+	return "ALTER TABLE " + a.tableName + " " + a.changeStr
 }
 
 func (a *AlterStatement) Apply(db *sql.DB) (result AlterResult) {
 
-	// log.Println("working on " + a.tableName)
-
-	res, err := db.Exec(a.changeStr)
-	// log.Println("finished " + a.tableName)
+	res, err := db.Exec(a.Serialize())
 
 	if err != nil {
 		result = AlterResult{alter: *a, rowsAffected: -1, err: err}
 		fmt.Printf("error occured with %s: %#v\n",
-			a.changeStr,
+			a.tableName,
 			result.err)
 		return result
 	}

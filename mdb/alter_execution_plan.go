@@ -6,6 +6,7 @@ import (
 	"strings"
 	"errors"
 	"log"
+	_"fmt"
 	"fmt"
 )
 
@@ -69,17 +70,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		whereClauses = append(whereClauses, " AND COLUMN_TYPE LIKE '"+aep.colType+"%'")
 	}
 
-	colQuery := `
-        SELECT
-            TABLE_SCHEMA dbName,
-            TABLE_NAME tableName,
-            COLUMN_NAME colName,
-            COLUMN_TYPE colType,
-            IS_NULLABLE nullable,
-            EXTRA extra
-        FROM
-            information_schema.COLUMNS
-        WHERE ` + strings.Join(whereClauses, "\n        ")
+	colQuery := buildColumnDefinitionQuery() + strings.Join(whereClauses, "\n        ")
 
 	log.Println("running " + colQuery)
 
@@ -90,7 +81,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		return nil, err
 	}
 
-	colDefs, err := aep.hydrateColumnDefinitions(rows)
+	colDefs, err := hydrateColumnDefinitions(rows)
 
 	if err != nil {
 		log.Printf("error hydrating rows: %v", err)
@@ -104,42 +95,47 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	alters := []AlterStatement{}
 
 	for _, c := range colDefs {
-		fmtStr := "CHANGE `%s` `%s` %s "
+		alterColClauses := []string{fmt.Sprintf("CHANGE `%s` `%s`", c.colName, c.colName)}
+
 		alterColType := c.colType
 
 		if aep.newColType != "" {
 			alterColType = aep.newColType
 		}
 
-		if c.unsigned {
-			alterColType = alterColType + " UNSIGNED"
+		// type
+		alterColClauses = append(alterColClauses, alterColType)
+		newTypeIsStringType := isStringType(alterColType)
+
+		if newTypeIsStringType {
+			// keep charset and collation for string types
+			alterColClauses = append(alterColClauses, c.characterSetName)
+			alterColClauses = append(alterColClauses, c.collationName)
 		}
 
-		switch {
-		case aep.nullable == mutil.IntentRemove:
-			fmtStr = fmtStr + " NOT NULL "
-		case aep.nullable == mutil.IntentAdd:
-			fmtStr = fmtStr + " NULL "
-		case aep.nullable == mutil.IntentNone && !c.nullable == false:
-			fmtStr = fmtStr + " NOT NULL "
-		case aep.nullable == mutil.IntentNone && c.nullable:
-			fmtStr = fmtStr + " NULL "
+		// [not] null
+		if aep.nullable == mutil.IntentRemove ||
+			(aep.nullable == mutil.IntentNone && c.isNullable == false) {
+			alterColClauses = append(alterColClauses, "NOT NULL")
+		} else if aep.nullable == mutil.IntentNone && c.isNullable == true {
+			alterColClauses = append(alterColClauses, "NULL")
 		}
 
-		switch {
-		case aep.autoInc == mutil.IntentAdd:
-			fmtStr = fmtStr + " AUTO_INCREMENT "
-		case aep.autoInc == mutil.IntentNone && c.autoInc:
-			fmtStr = fmtStr + " AUTO_INCREMENT "
+		// add default if present
+		if c.hasDefault {
+			alterColClauses = append(alterColClauses, "DEFAULT " +c.defaultValue)
 		}
 
-		changeStr := fmt.Sprintf(
-			fmtStr,
-			c.colName,
-			c.colName,
-			alterColType)
+		// extra
+		if aep.autoInc == mutil.IntentAdd || aep.autoInc == mutil.IntentNone && c.autoInc {
+			alterColClauses = append(alterColClauses, "AUTO_INCREMENT")
+		}
 
-		alters = append(alters, NewAlterStatement(c.tableName, changeStr))
+		changeStr := strings.Join(alterColClauses, " ")
+
+		alter := NewAlterStatement(c.tableName, changeStr)
+
+		alters = append(alters, alter)
 	}
 
 	return alters, nil
@@ -163,7 +159,7 @@ func CombineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
 			changeStrs = append(changeStrs, a.changeStr)
 		}
 
-		newAlter := AlterStatement{tableName, strings.Join(changeStrs, ", ")}
+		newAlter := AlterStatement{tableName, strings.Join(changeStrs, ",\n    ")}
 
 		consolidatedAlters = append(consolidatedAlters, newAlter)
 	}
@@ -172,32 +168,3 @@ func CombineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
 
 	return consolidatedAlters
 }
-
-func (aep *AlterExecutionPlan) hydrateColumnDefinitions(rows *sql.Rows) (colDefs []ColumnDefinition, err error) {
-	for rows.Next() {
-		var colDef ColumnDefinition
-		var extraStr, nullableStr string
-		err = rows.Scan(
-			&colDef.dbName,
-			&colDef.tableName,
-			&colDef.colName,
-			&colDef.colType,
-			&nullableStr,
-			&extraStr)
-
-		colDef.autoInc = strings.Contains(extraStr, "auto_increment")
-
-		colDef.unsigned = strings.Contains(colDef.colType, "unsigned")
-
-		colDef.nullable = nullableStr == "YES"
-
-		if err != nil {
-			return colDefs, err
-		}
-
-		colDefs = append(colDefs, colDef)
-	}
-
-	return colDefs, nil
-}
-

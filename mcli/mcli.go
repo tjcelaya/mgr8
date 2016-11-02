@@ -14,10 +14,6 @@ import (
 	"github.com/tjcelaya/mgr8/mutil"
 )
 
-var (
-	forReal = true
-)
-
 func Run(ior *bufio.Reader, iow io.Writer) int {
 	mf := parseFlags()
 	shouldExitEarly, exitCode := configureCliAndMaybeExit(iow, mf)
@@ -44,6 +40,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		*mf.dbName,
 		*mf.tableName,
 		*mf.colName,
+		*mf.typeName,
 		*mf.newTypeName,
 		autoIncIntent,
 		mutil.IntentNone)
@@ -65,6 +62,16 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		db.SetMaxOpenConns(*mf.maxDbConn)
 	}
 
+	stmts = mdb.CombineSameTableAlters(stmts)
+
+	if (false == *mf.write) {
+		log.Println("exiting early since write mode is disabled")
+		for _, a := range stmts {
+			log.Println(" -- " +  a.Serialize())
+		}
+		return 0
+	}
+
 	stmtCh := make(chan mdb.AlterStatement, *mf.maxDbConn)
 	doneCh := make(chan mdb.AlterResult, *mf.maxDbConn)
 	defer close(stmtCh)
@@ -73,7 +80,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	log.Printf("kicking off %d workers for %d statements\n", *mf.maxDbConn, len(stmts))
 
 	for i := 0; i < *mf.maxDbConn; i++ {
-		go queryWorker(db, stmtCh, doneCh, forReal)
+		go queryWorker(db, stmtCh, doneCh)
 	}
 
 	for i := 0; i < len(stmts); i++ {
@@ -83,7 +90,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	}
 
 	for i := 0; i < len(stmts); i++ {
-		log.Printf("waiting for %#v\n", i)
+		// log.Printf("waiting for %#v\n", i)
 		completionResult := <-doneCh
 		if completionResult.Err() != nil {
 			log.Printf("error running query on table %s complete: %s \n",
@@ -160,9 +167,9 @@ func buildDbConnection(mf MFlags) (*sql.DB, error) {
 	return db, nil
 }
 
-func queryWorker(db *sql.DB, stmtCh chan mdb.AlterStatement, resCh chan mdb.AlterResult, forReal bool) {
+func queryWorker(db *sql.DB, stmtCh chan mdb.AlterStatement, resCh chan mdb.AlterResult) {
 	for {
 		stmt := <-stmtCh
-		resCh <- stmt.Apply(forReal, db)
+		resCh <- stmt.Apply(db)
 	}
 }

@@ -5,8 +5,14 @@ import (
 )
 
 type ColumnDefinition struct {
-	dbName, tableName, colName, colType string
-	autoInc, nullable           bool
+	dbName, tableName, colName, colType, extra string
+	autoInc, nullable, unsigned           bool
+}
+
+func NewColumnDefinition(
+	dbName, tableName, colName, colType, extra string,
+	autoInc, nullable, unsigned           bool) ColumnDefinition {
+	return ColumnDefinition{dbName, tableName, colName, colType, extra, autoInc, nullable, unsigned}
 }
 
 func New(dsn string, maxConn int) (db *sql.DB, err error) {
@@ -27,3 +33,5 @@ func New(dsn string, maxConn int) (db *sql.DB, err error) {
 
 	return db, nil
 }
+
+type AlterError string

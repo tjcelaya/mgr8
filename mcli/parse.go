@@ -7,6 +7,7 @@ import (
 )
 
 type MFlags struct {
+	write *bool
 	dbName,
 	tableName,
 	colName,
@@ -23,6 +24,7 @@ type MFlags struct {
 
 func parseFlags() MFlags {
 	f := MFlags{
+		write:             flag.Bool("write", false, "Whether to actually perform changes" ),
 		dbName:            flag.String("db", "mgr8_db", "Database name to work on."),
 		colName:           flag.String("column", "", "Column name usually 'id' or something like that, can be comma-delimited OR include % wildcards, but not both."),
 		tableName:         flag.String("table", "", "Table name"),

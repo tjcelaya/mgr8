@@ -104,12 +104,17 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	return 0
 }
 
+var (
+	Buildstamp string
+)
+
 func configureCliAndMaybeExit(iow io.Writer, mf MFlags) (bool, int) {
 	log.SetOutput(iow)
 	log.SetPrefix("mgr8 - ")
+	log.Println("Build: " + Buildstamp)
 
 	if len(os.Args) == 1 {
-		log.Printf("\nmy name is %s and I have nothing to do? try -help !\n", os.Args[0])
+		log.Println("nothing to do? try -help !")
 		return true, 0
 	}
 

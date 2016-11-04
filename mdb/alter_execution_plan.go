@@ -37,40 +37,58 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	whereClauses = append(whereClauses, " TABLE_SCHEMA = '"+aep.dbName+"'")
 
 	if aep.tableName != "" {
-		whereClauses = append(whereClauses, " AND TABLE_NAME = '"+aep.tableName+"'")
+		whereClauses = append(whereClauses, "TABLE_NAME = '"+aep.tableName+"'")
 	}
 
 	if strings.ContainsRune(aep.colName, ',') {
-		colNames := make([]string, 0)
+		whereColClauses := make([]string, 0)
+		compoundColumnNamesUsed := strings.ContainsRune(aep.colName, '.')
+		cols := strings.Split(aep.colName, ",")
 
-		for _, c := range strings.Split(aep.colName, ",") {
-			colNames = append(colNames, strings.Trim(c, `'"`))
+		for _, c := range cols {
+
+			if 0 == len(c) {
+				continue
+			}
+
+			if compoundColumnNamesUsed {
+				columnNameParts := strings.Split(c, ".")
+
+				if len(columnNameParts) != 2 {
+					return nil, errors.New("invalid mostly-qualified column name (all columns must have table names if any have table names) : " + c)
+				}
+
+				whereColClauses = append(whereColClauses, fmt.Sprintf("(TABLE_NAME = '%s' AND COLUMN_NAME ='%s' )", columnNameParts[0], columnNameParts[1]))
+
+			} else {
+				whereColClauses = append(whereColClauses, "COLUMN_NAME = '" + strings.Trim(c, `'"`), "' ")
+			}
 		}
 
-		whereClauses = append(whereClauses, " AND COLUMN_NAME IN ('"+strings.Join(colNames, "','")+"')")
+		whereClauses = append(whereClauses, strings.Join(whereColClauses, " OR "))
 	} else if aep.colName != "" {
-		whereClauses = append(whereClauses, " AND COLUMN_NAME LIKE '"+aep.colName+"'")
+		whereClauses = append(whereClauses, "COLUMN_NAME LIKE '"+aep.colName+"'")
 	}
 
 	switch aep.autoInc {
 	case mutil.IntentAdd:
-		whereClauses = append(whereClauses, " AND EXTRA = '' ")
+		whereClauses = append(whereClauses, "EXTRA = '' ")
 	case mutil.IntentRemove:
-		whereClauses = append(whereClauses, " AND EXTRA = 'auto_increment' ")
+		whereClauses = append(whereClauses, "EXTRA = 'auto_increment' ")
 	}
 
 	switch aep.nullable {
 	case mutil.IntentAdd:
-		whereClauses = append(whereClauses, " AND IS_NULLABLE = 'NO' ")
+		whereClauses = append(whereClauses, "IS_NULLABLE = 'NO' ")
 	case mutil.IntentRemove:
-		whereClauses = append(whereClauses, " AND IS_NULLABLE = 'YES' ")
+		whereClauses = append(whereClauses, "IS_NULLABLE = 'YES' ")
 	}
 
 	if aep.colType != "" {
-		whereClauses = append(whereClauses, " AND COLUMN_TYPE LIKE '"+aep.colType+"%'")
+		whereClauses = append(whereClauses, "COLUMN_TYPE LIKE '"+aep.colType+"%'")
 	}
 
-	colQuery := buildColumnDefinitionQuery() + strings.Join(whereClauses, "\n        ")
+	colQuery := buildColumnDefinitionQuery() + strings.Join(whereClauses, "\n        AND ")
 
 	log.Println("running " + colQuery)
 
@@ -97,15 +115,19 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	for _, c := range colDefs {
 		alterColClauses := []string{fmt.Sprintf("CHANGE `%s` `%s`", c.colName, c.colName)}
 
+		// type
 		alterColType := c.colType
+		newTypeIsStringType := isStringType(alterColType)
 
 		if aep.newColType != "" {
 			alterColType = aep.newColType
 		}
 
-		// type
+		if c.isUnsigned {
+			alterColType = alterColType + " UNSIGNED"
+		}
+
 		alterColClauses = append(alterColClauses, alterColType)
-		newTypeIsStringType := isStringType(alterColType)
 
 		if newTypeIsStringType {
 			// keep charset and collation for string types
@@ -159,12 +181,12 @@ func CombineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
 			changeStrs = append(changeStrs, a.changeStr)
 		}
 
-		newAlter := AlterStatement{tableName, strings.Join(changeStrs, ",\n    ")}
+		newAlter := AlterStatement{tableName, strings.Join(changeStrs, ",\n    ") + "\n;"}
 
 		consolidatedAlters = append(consolidatedAlters, newAlter)
 	}
 
-	log.Println(len(originalAlters), len(consolidatedAlters))
+	log.Printf("consolidated %d individual column alters into %d table alters", len(originalAlters), len(consolidatedAlters))
 
 	return consolidatedAlters
 }

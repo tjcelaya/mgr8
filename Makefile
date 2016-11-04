@@ -2,7 +2,9 @@ BUILDSTAMP = $(shell date -u +"%Y%m%dT%H%M%SZ")
 
 clean: db-clean build-clean
 
-build:
+build: build-mac build-linux
+
+build-mac:
 	go build -o mgr8-mac-${BUILDSTAMP} -ldflags "-X main.buildstamp=${BUILDSTAMP}" main.go
 
 build-linux:

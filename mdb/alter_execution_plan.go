@@ -2,28 +2,30 @@ package mdb
 
 import (
 	"database/sql"
-	"github.com/tjcelaya/mgr8/mutil"
-	"strings"
 	"errors"
-	"log"
-	_"fmt"
 	"fmt"
+	_ "fmt"
+	"github.com/tjcelaya/mgr8/mutil"
+	"log"
+	"strings"
 )
 
 type AlterExecutionPlan struct {
-	dbName, tableName, colName, colType, newColType string
-	autoInc, nullable                               mutil.BinaryChangeIntent
+	dbName, tableName, colName, colType, newColType, newCharacterSet, newCollation string
+	autoInc, nullable                                                              mutil.BinaryChangeIntent
 }
 
 func NewAlterExecutionPlan(
-dbName,
-tableName,
-colName,
-colType,
-newColType string,
-autoInc, nullable mutil.BinaryChangeIntent) AlterExecutionPlan {
+	dbName,
+	tableName,
+	colName,
+	colType,
+	newColType,
+	newCharacterSet,
+	newCollation string,
+	autoInc, nullable mutil.BinaryChangeIntent) AlterExecutionPlan {
 
-	return AlterExecutionPlan{dbName, tableName, colName, colType, newColType, autoInc, nullable}
+	return AlterExecutionPlan{dbName, tableName, colName, colType, newColType, newCharacterSet, newCollation, autoInc, nullable}
 }
 
 func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
@@ -32,40 +34,44 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		return nil, errors.New("no table or column specified!")
 	}
 
+	if aep.newCharacterSet != "" || aep.newCollation != "" {
+		if (aep.newCharacterSet != "" && aep.newCollation == "") ||
+			(aep.newCharacterSet == "" && aep.newCollation != "") {
+			return nil, errors.New("character set and collation must be specified together")
+		}
+	}
+
 	var whereClauses []string
 
 	whereClauses = append(whereClauses, " TABLE_SCHEMA = '"+aep.dbName+"'")
 
-	if aep.tableName != "" {
-		whereClauses = append(whereClauses, "TABLE_NAME = '"+aep.tableName+"'")
+	tableWhereClause, err := aep.buildTableWhereClause()
+
+	if err != nil {
+		return nil, err
 	}
+
+	whereClauses = append(whereClauses, tableWhereClause...)
 
 	if strings.ContainsRune(aep.colName, ',') {
 		whereColClauses := make([]string, 0)
-		compoundColumnNamesUsed := strings.ContainsRune(aep.colName, '.')
-		cols := strings.Split(aep.colName, ",")
 
-		for _, c := range cols {
+		potentiallyQualifiedColSyms := buildCommaSeparatedQualifiedSymbolList(aep.colName, '.')
 
-			if 0 == len(c) {
-				continue
-			}
-
-			if compoundColumnNamesUsed {
-				columnNameParts := strings.Split(c, ".")
-
-				if len(columnNameParts) != 2 {
-					return nil, errors.New("invalid mostly-qualified column name (all columns must have table names if any have table names) : " + c)
-				}
-
-				whereColClauses = append(whereColClauses, fmt.Sprintf("(TABLE_NAME = '%s' AND COLUMN_NAME ='%s' )", columnNameParts[0], columnNameParts[1]))
-
+		for _, colSymParts := range potentiallyQualifiedColSyms {
+			if 2 < len(colSymParts) {
+				return nil, errors.New(fmt.Sprintln("strangely qualified colsym: ", colSymParts))
+			} else if 2 == len(colSymParts) {
+				whereColClauses = append(whereColClauses,
+					fmt.Sprintf("(TABLE_NAME = '%s' AND COLUMN_NAME ='%s' )",
+						colSymParts[0],
+						colSymParts[1]))
 			} else {
-				whereColClauses = append(whereColClauses, "COLUMN_NAME = '" + strings.Trim(c, `'"`), "' ")
+				whereColClauses = append(whereColClauses, "COLUMN_NAME = '" + strings.Trim(colSymParts[0], `'"`) + "' ")
 			}
 		}
 
-		whereClauses = append(whereClauses, strings.Join(whereColClauses, " OR "))
+		whereClauses = append(whereClauses, "(" + strings.Join(whereColClauses, " OR ") + ")")
 	} else if aep.colName != "" {
 		whereClauses = append(whereClauses, "COLUMN_NAME LIKE '"+aep.colName+"'")
 	}
@@ -88,14 +94,16 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		whereClauses = append(whereClauses, "COLUMN_TYPE LIKE '"+aep.colType+"%'")
 	}
 
-	colQuery := buildColumnDefinitionQuery() + strings.Join(whereClauses, "\n        AND ")
+	colQuery := fmt.Sprint(
+			buildColumnDefinitionQuery(),
+			strings.Join(whereClauses, "\n        AND "))
 
 	log.Println("running " + colQuery)
 
 	rows, err := db.Query(colQuery)
 
 	if err != nil {
-		log.Printf("error building plan: %v", err)
+		log.Printf("error querying for targets: %v", err)
 		return nil, err
 	}
 
@@ -110,9 +118,18 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 		return nil, nil
 	}
 
-	alters := []AlterStatement{}
+	var tableAlters, columnAlters []AlterStatement
+	tableSet := make(map[string]interface{})
 
 	for _, c := range colDefs {
+		if _, ok := tableSet[c.tableName]; !ok {
+			tableSet[c.tableName] = nil
+		}
+
+		if aep.colName == "" && aep.colType == "" {
+			continue // we're only here to collect table names while grouping is figured out
+		}
+
 		alterColClauses := []string{fmt.Sprintf("CHANGE `%s` `%s`", c.colName, c.colName)}
 
 		// type
@@ -145,7 +162,7 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
 		// add default if present
 		if c.hasDefault {
-			alterColClauses = append(alterColClauses, "DEFAULT " +c.defaultValue)
+			alterColClauses = append(alterColClauses, "DEFAULT "+c.defaultValue)
 		}
 
 		// extra
@@ -157,13 +174,43 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
 		alter := NewAlterStatement(c.tableName, changeStr)
 
-		alters = append(alters, alter)
+		columnAlters = append(columnAlters, alter)
 	}
 
-	return alters, nil
+	if aep.newCharacterSet != "" && aep.newCollation != "" {
+		for tableName := range(tableSet) {
+			tableAlters = append(tableAlters, NewAlterStatement(tableName, "CONVERT TO CHARACTER SET "+aep.newCharacterSet+" COLLATE "+aep.newCollation))
+		}
+	}
+
+
+	return combineSameTableAlters(append(tableAlters, columnAlters...)), nil
 }
 
-func CombineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
+func buildCommaSeparatedQualifiedSymbolList(csvList string, symbolQualifier rune) [][]string {
+
+	if !strings.ContainsRune(csvList, ',') {
+		return [][]string{[]string{csvList}}
+	}
+
+	syms := make([][]string, 0)
+
+	for _, s := range strings.Split(csvList, ",") {
+		if 0 == len(s) {
+			continue
+		}
+
+		if strings.Contains(s, string(symbolQualifier)) {
+			syms = append(syms, strings.Split(s, string(symbolQualifier)))
+		} else {
+			syms = append(syms, []string{s})
+		}
+	}
+
+	return syms
+}
+
+func combineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
 
 	altersGroupedByTable := make(map[string][]AlterStatement, 0)
 
@@ -186,7 +233,31 @@ func CombineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
 		consolidatedAlters = append(consolidatedAlters, newAlter)
 	}
 
-	log.Printf("consolidated %d individual column alters into %d table alters", len(originalAlters), len(consolidatedAlters))
+	log.Printf("consolidated %d individual alters into %d grouped table alters", len(originalAlters), len(consolidatedAlters))
 
 	return consolidatedAlters
+}
+
+func (aep *AlterExecutionPlan) buildTableWhereClause() ([]string, error) {
+
+	if aep.tableName == "" {
+		return []string{}, nil
+	}
+
+	potentiallyQualifiedTableSyms := buildCommaSeparatedQualifiedSymbolList(aep.tableName, '.')
+	tableWhereClauses := make([]string, 0)
+
+	for _, t := range potentiallyQualifiedTableSyms {
+		if 0 == len(t) {
+			continue
+		}
+
+		if 1 != len(t) {
+			return []string{}, errors.New(fmt.Sprintln("poorly qualified table:", t))
+		}
+
+		tableWhereClauses = append(tableWhereClauses, fmt.Sprintf("TABLE_NAME = '%s'", t[0]))
+	}
+
+	return []string{"(" + strings.Join(tableWhereClauses, " OR ") + ")"}, nil
 }

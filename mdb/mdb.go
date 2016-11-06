@@ -12,24 +12,6 @@ type ColumnDefinition struct {
 	autoInc, isNullable, isUnsigned, hasDefault bool
 }
 
-func NewColumnDefinition(
-	dbName, tableName, colName, colType, characterSetName, collationName, defaultValue, extra string,
-	autoInc, isNullable, isUnsigned, hasDefault bool) ColumnDefinition {
-	return ColumnDefinition{
-		dbName,
-		tableName,
-		colName,
-		colType,
-		characterSetName,
-		collationName,
-		defaultValue,
-		extra,
-		autoInc,
-		isNullable,
-		isUnsigned,
-		hasDefault}
-}
-
 func New(dsn string, maxConn int) (db *sql.DB, err error) {
 	db, err = sql.Open("mysql", dsn)
 

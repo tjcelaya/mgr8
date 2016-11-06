@@ -15,8 +15,7 @@ import (
 )
 
 func Run(ior *bufio.Reader, iow io.Writer) int {
-	mf := parseFlags()
-	shouldExitEarly, exitCode := configureCliAndMaybeExit(iow, mf)
+	mf, shouldExitEarly, exitCode := buildCliContext(iow)
 
 	if shouldExitEarly {
 		return exitCode
@@ -25,6 +24,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 	db, err := buildDbConnection(mf)
 
 	if err != nil {
+		log.Println("database connection error: ", err)
 		return 1
 	}
 
@@ -42,6 +42,8 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		*mf.colName,
 		*mf.typeName,
 		*mf.newTypeName,
+		*mf.newCharacterSetName,
+		*mf.newCollationName,
 		autoIncIntent,
 		mutil.IntentNone)
 
@@ -51,8 +53,6 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		log.Fatalf("failed to build execution plan! %v\n", err)
 		return 2
 	}
-
-	stmts = mdb.CombineSameTableAlters(stmts)
 
 	if len(stmts) == 0 {
 		log.Println("nothing to do?")
@@ -101,6 +101,7 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 			completionResult.TargetIdentifier(),
 			completionResult.ResultCount())
 	}
+
 	return 0
 }
 
@@ -108,36 +109,42 @@ var (
 	Buildstamp string
 )
 
-func configureCliAndMaybeExit(iow io.Writer, mf MFlags) (bool, int) {
+func buildCliContext(iow io.Writer) (MFlags, bool, int) {
+
+	mf := parseFlags()
+
 	log.SetOutput(iow)
 	log.SetPrefix("mgr8 - ")
 	log.Println("Build: " + Buildstamp)
 
 	if len(os.Args) == 1 {
 		log.Println("nothing to do? try -help !")
-		return true, 0
+		return mf, true, 0
 	}
 
 	if *mf.dbName == "" {
 		log.Println("no db given!")
-		return true, 1
+		return mf, true, 1
 	}
 
 	log.Printf("database: %s", *mf.dbName)
 
 	if *mf.tableName == "" && *mf.colName == "" {
 		log.Println("no table or column given, need at least one!")
-		return true, 1
-	} else if *mf.colName == "" {
-		log.Println("no table operations supported yet")
-		return true, -1
-	} else if *mf.tableName == "" {
-		log.Printf("column: %s", *mf.colName)
+		return mf, true, 1
+	}
+
+	if 0 < len(*mf.tableName) {
+		log.Println("table: ", *mf.tableName)
+	}
+
+	if 0 < len(*mf.colName)  {
+		log.Println("column: ", *mf.colName)
 	}
 
 	if *mf.forAutoIncAdd && *mf.forAutoIncRemoval {
 		log.Println("can't both add and remove auto-inc!")
-		return true, 2
+		return mf, true, 2
 	} else if *mf.forAutoIncAdd {
 		log.Println("auto_inc: add")
 	} else if *mf.forAutoIncRemoval {
@@ -148,7 +155,7 @@ func configureCliAndMaybeExit(iow io.Writer, mf MFlags) (bool, int) {
 		log.Printf("column type change: %s\n", *mf.newTypeName)
 	}
 
-	return false, 0
+	return mf, false, 0
 }
 
 func buildDbConnection(mf MFlags) (*sql.DB, error) {

@@ -27,4 +27,3 @@ func (a *AlterResult) ResultCount() int {
 func (a *AlterResult) PlanDescription() string {
 	return a.alter.changeStr
 }
-

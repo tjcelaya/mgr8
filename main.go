@@ -1,5 +1,8 @@
 package main
 
+// -column mgr8_test_id.int_id,mgr8_test_another_table_id.nullable_int_id,mgr8_test_id.auto_inc_nonnullable_int_id, -newcoltype bigint -table mgr8_test_id
+// -character-set utf8mb4 -collation utf8mb4_general_ci
+
 import (
 	"bufio"
 	_ "database/sql/driver"

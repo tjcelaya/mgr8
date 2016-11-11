@@ -3,8 +3,8 @@ package mdb
 import (
 	"database/sql"
 	"fmt"
-	_"os"
-	_"log"
+	_ "log"
+	_ "os"
 )
 
 /*

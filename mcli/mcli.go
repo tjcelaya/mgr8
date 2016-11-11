@@ -8,10 +8,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/segmentio/go-prompt"
 	"github.com/tjcelaya/mgr8/mdb"
+	"github.com/tjcelaya/mgr8/mutil"
 	"io"
 	"log"
 	"os"
-	"github.com/tjcelaya/mgr8/mutil"
 )
 
 func Run(ior *bufio.Reader, iow io.Writer) int {
@@ -64,10 +64,10 @@ func Run(ior *bufio.Reader, iow io.Writer) int {
 		db.SetMaxOpenConns(*mf.maxDbConn)
 	}
 
-	if (false == *mf.write) {
+	if false == *mf.write {
 		log.Println("exiting early since write mode is disabled")
 		for _, a := range stmts {
-			log.Println(" -- " +  a.Serialize())
+			log.Println(" -- " + a.Serialize())
 		}
 		return 0
 	}
@@ -138,7 +138,7 @@ func buildCliContext(iow io.Writer) (MFlags, bool, int) {
 		log.Println("table: ", *mf.tableName)
 	}
 
-	if 0 < len(*mf.colName)  {
+	if 0 < len(*mf.colName) {
 		log.Println("column: ", *mf.colName)
 	}
 

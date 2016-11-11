@@ -9,7 +9,7 @@ type AlterError string
 
 type ColumnDefinition struct {
 	dbName, tableName, colName, colType, characterSetName, collationName, defaultValue, extra string
-	autoInc, isNullable, isUnsigned, hasDefault bool
+	autoInc, isNullable, isUnsigned, hasDefault                                               bool
 }
 
 func New(dsn string, maxConn int) (db *sql.DB, err error) {

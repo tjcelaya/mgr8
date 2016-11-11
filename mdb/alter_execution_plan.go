@@ -53,28 +53,24 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 
 	whereClauses = append(whereClauses, tableWhereClause...)
 
-	if strings.ContainsRune(aep.colName, ',') {
-		whereColClauses := make([]string, 0)
+	whereColClauses := make([]string, 0)
 
-		potentiallyQualifiedColSyms := buildCommaSeparatedQualifiedSymbolList(aep.colName, '.')
+	potentiallyQualifiedColSyms := mutil.BuildCommaSeparatedQualifiedSymbolList(aep.colName, '.')
 
-		for _, colSymParts := range potentiallyQualifiedColSyms {
-			if 2 < len(colSymParts) {
-				return nil, errors.New(fmt.Sprintln("strangely qualified colsym: ", colSymParts))
-			} else if 2 == len(colSymParts) {
-				whereColClauses = append(whereColClauses,
-					fmt.Sprintf("(TABLE_NAME = '%s' AND COLUMN_NAME ='%s' )",
-						colSymParts[0],
-						colSymParts[1]))
-			} else {
-				whereColClauses = append(whereColClauses, "COLUMN_NAME = '" + strings.Trim(colSymParts[0], `'"`) + "' ")
-			}
+	for _, colSymParts := range potentiallyQualifiedColSyms {
+		if 2 < len(colSymParts) {
+			return nil, errors.New(fmt.Sprintln("strangely qualified colsym: ", colSymParts))
+		} else if 2 == len(colSymParts) {
+			whereColClauses = append(whereColClauses,
+				fmt.Sprintf("(TABLE_NAME = '%s' AND COLUMN_NAME ='%s' )",
+					colSymParts[0],
+					colSymParts[1]))
+		} else {
+			whereColClauses = append(whereColClauses, "COLUMN_NAME = '"+strings.Trim(colSymParts[0], `'"`)+"' ")
 		}
-
-		whereClauses = append(whereClauses, "(" + strings.Join(whereColClauses, " OR ") + ")")
-	} else if aep.colName != "" {
-		whereClauses = append(whereClauses, "COLUMN_NAME LIKE '"+aep.colName+"'")
 	}
+
+	whereClauses = append(whereClauses, "("+strings.Join(whereColClauses, " OR ")+")")
 
 	switch aep.autoInc {
 	case mutil.IntentAdd:
@@ -95,8 +91,8 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	}
 
 	colQuery := fmt.Sprint(
-			buildColumnDefinitionQuery(),
-			strings.Join(whereClauses, "\n        AND "))
+		buildColumnDefinitionQuery(),
+		strings.Join(whereClauses, "\n        AND "))
 
 	log.Println("running " + colQuery)
 
@@ -178,36 +174,12 @@ func (aep *AlterExecutionPlan) Build(db *sql.DB) ([]AlterStatement, error) {
 	}
 
 	if aep.newCharacterSet != "" && aep.newCollation != "" {
-		for tableName := range(tableSet) {
+		for tableName := range tableSet {
 			tableAlters = append(tableAlters, NewAlterStatement(tableName, "CONVERT TO CHARACTER SET "+aep.newCharacterSet+" COLLATE "+aep.newCollation))
 		}
 	}
 
-
 	return combineSameTableAlters(append(tableAlters, columnAlters...)), nil
-}
-
-func buildCommaSeparatedQualifiedSymbolList(csvList string, symbolQualifier rune) [][]string {
-
-	if !strings.ContainsRune(csvList, ',') {
-		return [][]string{[]string{csvList}}
-	}
-
-	syms := make([][]string, 0)
-
-	for _, s := range strings.Split(csvList, ",") {
-		if 0 == len(s) {
-			continue
-		}
-
-		if strings.Contains(s, string(symbolQualifier)) {
-			syms = append(syms, strings.Split(s, string(symbolQualifier)))
-		} else {
-			syms = append(syms, []string{s})
-		}
-	}
-
-	return syms
 }
 
 func combineSameTableAlters(originalAlters []AlterStatement) []AlterStatement {
@@ -244,7 +216,7 @@ func (aep *AlterExecutionPlan) buildTableWhereClause() ([]string, error) {
 		return []string{}, nil
 	}
 
-	potentiallyQualifiedTableSyms := buildCommaSeparatedQualifiedSymbolList(aep.tableName, '.')
+	potentiallyQualifiedTableSyms := mutil.BuildCommaSeparatedQualifiedSymbolList(aep.tableName, '.')
 	tableWhereClauses := make([]string, 0)
 
 	for _, t := range potentiallyQualifiedTableSyms {
